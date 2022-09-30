@@ -2,12 +2,9 @@
 """
     Fabric script to automate deployment of web_static directory
 """
-from fabric.api import run, put, local, env
+from fabric.api import run, put, local, env, execute, hosts
 from datetime import datetime
 import os.path
-
-
-env.hosts = ['34.73.100.0', '34.228.167.237']
 
 
 def do_pack():
@@ -25,6 +22,7 @@ def do_pack():
     return None
 
 
+@hosts('35.227.3.110', '35.227.20.183')
 def do_deploy(archive_path):
     """
     - Upload the archive to the /tmp/ directory of the web server
@@ -61,10 +59,53 @@ def deploy():
       archive
     - Return the return value of do_deploy
     """
-    path = do_pack()
+    path = execute(do_pack)
     if (path is None):
         return False
-    deploy = do_deploy(path)
+    deploy = execute(do_deploy, archive_path=path['<local-only>'])
     if (deploy is False):
         return False
     return deploy
+
+
+def do_stress():
+    """
+    Function made for debugging purpose of fn do_clean
+    """
+    for i in range(0, 10):
+        date = datetime.now().strftime("%Y%m%d%H%M%S")
+        path = 'versions/web_static_' + date + "_" + str(i) + '.tgz'
+        local('touch ' + path)
+
+
+@hosts('35.227.3.110', '35.227.20.183')
+def do_clean(number=0):
+    """
+    deletes out-of-date archives.
+    Return True if there is not operation to do otherwise False if an error is
+    raised
+    """
+    try:
+        number = int(number)
+    except Exception:
+        return False
+    archives_nb = local('ls -ltr versions | wc -l', capture=True).stdout
+    archives_nb = int(archives_nb) - 1
+    if (archives_nb <= 0 or archives_nb == 1):
+        return True
+    if (number == 0 or number == 1):
+        remove_nb = archives_nb - 1
+    else:
+        remove_nb = archives_nb - number
+        if (remove_nb <= 0):
+            return True
+    archives_list = local("ls -ltr versions | tail -n " + str(archives_nb) + "\
+            | head -n \
+            " + str(remove_nb) + "\
+            | awk '{print $9}'", capture=True).rsplit("\n")
+    if len(archives_list) >= 1:
+        for archive_name in archives_list:
+            if (archive_name != ''):
+                local('rm versions/' + archive_name)
+                run('rm -rf /data/web_static/releases/\
+                    ' + archive_name.split('.')[0])
